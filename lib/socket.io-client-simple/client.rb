@@ -12,8 +12,19 @@ module SocketIO
         include EventEmitter
         alias_method :__emit, :emit
 
-        attr_accessor :auto_reconnection, :websocket, :url, :reconnecting, :state,
-                      :session_id, :ping_interval, :ping_timeout, :last_pong_at, :last_ping_at
+        attr_accessor :auto_reconnection,
+                      :websocket,
+                      :url,
+                      :reconnecting,
+                      :state,
+                      :session_id,
+                      :ping_interval,
+                      :ping_timeout,
+                      :last_pong_at,
+                      :last_ping_at,
+                      :connect_timeout,
+                      :connect_started_at,
+                      :connect_timed_out
 
         def initialize(url, opts={})
           @url = url
@@ -22,6 +33,9 @@ module SocketIO
           @reconnecting = false
           @state = :disconnect
           @auto_reconnection = true
+          @connect_timeout = opts[:connect_timeout] || 25000
+          @connect_started_at = Time.now.to_i
+          @connect_timed_out = false
 
           Thread.new do
             loop do
@@ -39,14 +53,19 @@ module SocketIO
                   reconnect
                 end
               end
+              break if @connect_timed_out
               sleep 1
             end
           end
-
         end
 
 
         def connect
+          if Time.now.to_i - @connect_started_at > @connect_timeout/1000
+            @connect_timed_out = true
+            fail 'Failed to connect to socket.io server'
+          end
+
           query = @opts.map{|k,v| URI.encode "#{k}=#{v}" }.join '&'
           begin
             @websocket = WebSocket::Client::Simple.connect "#{@url}/socket.io/?#{query}"
@@ -105,7 +124,13 @@ module SocketIO
           return unless @auto_reconnection
           return if @reconnecting
           @reconnecting = true
-          sleep rand(5) + 5
+
+          if Time.now.to_i - @connect_started_at > @connect_timeout/1000
+            sleep rand(5) + 5
+          else
+            sleep 1
+          end
+
           connect
         end
 
@@ -121,7 +146,6 @@ module SocketIO
         end
 
       end
-
     end
   end
 end
